@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>سناب أفتر - تنوع فائق + إكسسوارات</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <style>
+    body { margin:0; overflow:hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction:rtl; }
+    #ui {
+      position:absolute; bottom:30px; left:50%; transform:translateX(-50%);
+      background: rgba(20, 20, 30, 0.7);
+      backdrop-filter: blur(10px);
+      padding: 14px 22px;
+      border-radius: 60px;
+      color: white;
+      display:flex; gap:14px;
+      align-items:center;
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      z-index:10;
+      direction:ltr;
+    }
+    #ui label { font-size: 16px; font-weight: 600; }
+    #slider {
+      width: 240px; height: 8px; border-radius: 10px;
+      background: linear-gradient(90deg, #ffffff, #444444, #000000);
+      -webkit-appearance:none; appearance:none; outline:none; cursor:pointer;
+    }
+    #slider::-webkit-slider-thumb {
+      -webkit-appearance:none;
+      width: 22px; height: 22px; background:white; border-radius:50%;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+      border: 2px solid #00ccff;
+      transition: 0.1s;
+    }
+    #slider::-webkit-slider-thumb:hover { transform: scale(1.12); background:#f0f0ff; }
+
+    #value {
+      font-size: 18px; font-weight: 800; min-width: 90px; text-align:center;
+      background: rgba(0,0,0,0.4);
+      padding: 7px 14px;
+      border-radius: 40px;
+      border-left: 3px solid #00ffff;
+      box-shadow: inset 0 0 10px rgba(0,255,255,0.3);
+      color: #aaffff;
+    }
+
+    .btn {
+      border: 1px solid rgba(255,255,255,0.22);
+      background: rgba(255,255,255,0.10);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: 0.15s;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .btn:hover { transform: translateY(-1px); background: rgba(255,255,255,0.16); }
+    .btn.active { border-color: rgba(0,255,255,0.75); box-shadow: 0 0 0 2px rgba(0,255,255,0.18) inset; }
+
+    .instructions {
+      position:absolute; top:20px; right:20px;
+      background: rgba(0,0,0,0.30);
+      color: rgba(255,255,255,0.85);
+      padding: 8px 16px;
+      border-radius: 30px;
+      font-size: 14px;
+      backdrop-filter: blur(5px);
+      border: 1px solid rgba(255,255,255,0.15);
+      pointer-events:none;
+      z-index:10;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="instructions">🖱️ اسحب لتدوير | ⚫ تعتيم تدريجي | 👨/👩 تنوع فائق + إكسسوارات</div>
+
+  <div id="ui">
+    <button id="maleBtn" class="btn active">👨 ذكر</button>
+    <button id="femaleBtn" class="btn">👩 أنثى</button>
+    <button id="regenBtn" class="btn">🔄 توليد عشوائي</button>
+
+    <label>⚫ مستوى التعتيم</label>
+    <input type="range" min="0" max="100" value="0" id="slider">
+    <div id="value">0%</div>
+  </div>
+
+  <script>
+    (function () {
+      // ---------- أدوات مساعدة ----------
+      const rand = (min, max) => Math.random() * (max - min) + min;
+      const randInt = (min, max) => Math.floor(rand(min, max + 1));
+      const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const chance = (p) => Math.random() < p;
+
+      function setBtnActive(g) {
+        maleBtn.classList.toggle("active", g === "male");
+        femaleBtn.classList.toggle("active", g === "female");
+      }
+
+      // التخلص من الكائنات القديمة
+      function disposeObject3D(root) {
+        root.traverse((obj) => {
+          if (obj.geometry) obj.geometry.dispose();
+          if (obj.material) {
+            if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+            else obj.material.dispose();
+          }
+        });
+      }
+
+      // ---------- المشهد ----------
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0a1a);
+      scene.fog = new THREE.FogExp2(0x0a0a1a, 0.025);
+
+      const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(4, 3, 12);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.autoRotate = false;
+      controls.enableZoom = true;
+      controls.maxPolarAngle = Math.PI / 2;
+      controls.target.set(0, 1.8, 0);
+
+      // ---------- الإضاءة ----------
+      scene.add(new THREE.AmbientLight(0x40406b, 0.9));
+
+      const sunLight = new THREE.DirectionalLight(0xfff5e6, 1.3);
+      sunLight.position.set(5, 10, 7);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 1024;
+      sunLight.shadow.mapSize.height = 1024;
+      scene.add(sunLight);
+
+      const backLight = new THREE.PointLight(0x4466aa, 0.8);
+      backLight.position.set(-5, 2, -5);
+      scene.add(backLight);
+
+      const fillLight = new THREE.PointLight(0xaaccff, 0.6);
+      fillLight.position.set(3, 2, 5);
+      scene.add(fillLight);
+
+      // أرضية شفافة
+      const ground = new THREE.Mesh(
+        new THREE.CircleGeometry(15, 32),
+        new THREE.MeshStandardMaterial({ color: 0x1a2b3c, transparent: true, opacity: 0.2 })
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -2.5;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // جسيمات خلفية
+      const particlesGeo = new THREE.BufferGeometry();
+      const posArray = new Float32Array(300 * 3);
+      for (let i = 0; i < 300 * 3; i += 3) {
+        posArray[i] = (Math.random() - 0.5) * 20;
+        posArray[i+1] = (Math.random() - 0.5) * 15;
+        posArray[i+2] = (Math.random() - 0.5) * 20;
+      }
+      particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+      const particles = new THREE.Points(particlesGeo, new THREE.PointsMaterial({ color: 0xaaccff, size: 0.06, transparent: true, opacity: 0.3 }));
+      scene.add(particles);
+
+      // ---------- حاوية الأفتر ----------
+      const avatarRoot = new THREE.Group();
+      scene.add(avatarRoot);
+
+      let currentGender = "male";
+      let bodyParts = []; // لتخزين أجزاء الجسم (كل قطعة كاملة)
+      let heartMesh;
+
+      // ---------- لوحة ألوان عشوائية (موسعة جداً × 10) ----------
+      function randomPalette(gender) {
+        // ألوان بشرة (50 لون)
+        const skinTones = [
+          0xf5d0a9, 0xf1c7a1, 0xeebc95, 0xf6d6b8, 0xe0ac7a, 0xd89c6a, 
+          0xc48a5c, 0xb87a4a, 0xa56b3a, 0x8b5a2e, 0x6b4226, 0x5a3a1e,
+          0xf7d9c4, 0xf2cba0, 0xedbd8c, 0xe8af78, 0xd49b6a, 0xc0875c,
+          0xac734e, 0x985f40, 0x844b32, 0x703724, 0x5c2d1e, 0x482318,
+          0xf8e0c0, 0xf3d5b0, 0xeecaa0, 0xe9bf90, 0xd4a880, 0xbf9170,
+          0xaa7a60, 0x956350, 0x804c40, 0x6b3530, 0x562e28, 0x412720,
+          0xfae5cd, 0xf5dabc, 0xf0cfab, 0xebc49a, 0xd6ad89, 0xc19678,
+          0xac7f67, 0x976856, 0x825145, 0x6d3a34, 0x58332b, 0x432c22
+        ];
+        
+        // ألوان شعر (50 لون)
+        const hairColors = [
+          0x2b1e0e, 0x1e1b16, 0x2a2320, 0x3a2b1b, 0x4a3a2a, 0x5a4a3a,
+          0x221c15, 0x332211, 0x443322, 0x554433, 0x2d2d2d, 0x1a1a1a,
+          0x8b5a2b, 0xa67b5b, 0xc19a6b, 0xd2b48c, 0xe0c090, 0x4a2a1a,
+          0x5a3a2a, 0x6a4a3a, 0x7a5a4a, 0x8a6a5a, 0x9a7a6a, 0xaa8a7a,
+          0x1a1a2a, 0x2a2a3a, 0x3a3a4a, 0x4a4a5a, 0x5a5a6a, 0x6a6a7a,
+          0x7a7a8a, 0x8a8a9a, 0x9a9aaa, 0x2a1a1a, 0x3a2a2a, 0x4a3a3a,
+          0x5a4a4a, 0x6a5a5a, 0x7a6a6a, 0x8a7a7a, 0x9a8a8a, 0xaa9a9a,
+          0x1a2a1a, 0x2a3a2a, 0x3a4a3a, 0x4a5a4a, 0x5a6a5a, 0x6a7a6a,
+          0x7a8a7a, 0x8a9a8a
+        ];
+        
+        // ألوان قمصان للذكر (50 لون)
+        const maleShirts = [
+          0x222c3a, 0x1f2a44, 0x2b2b33, 0x24304a, 0x20384a, 0x1e3a5a,
+          0x2a4a6a, 0x1a2e3a, 0x2d4059, 0x3a4a6a, 0x2c3e50, 0x34495e,
+          0x4a6a8a, 0x3a5a7a, 0x2a4a6a, 0x1e3a5a, 0x0a2a4a, 0x3a4a5a,
+          0x4a5a6a, 0x5a6a7a, 0x2a3a4a, 0x1a2a3a, 0x2d2d3a, 0x3a3a4a,
+          0x4a4a5a, 0x5a5a6a, 0x6a6a7a, 0x7a7a8a, 0x1a2a3a, 0x2a3a4a,
+          0x3a4a5a, 0x4a5a6a, 0x5a6a7a, 0x6a7a8a, 0x2a3a3a, 0x3a4a4a,
+          0x4a5a5a, 0x5a6a6a, 0x6a7a7a, 0x1a2a2a, 0x2a3a3a, 0x3a4a4a,
+          0x4a5a5a, 0x5a6a6a, 0x2a2a1a, 0x3a3a2a, 0x4a4a3a, 0x5a5a4a,
+          0x6a6a5a, 0x7a7a6a
+        ];
+        
+        // ألوان قمصان للأنثى (50 لون)
+        const femaleTops = [
+          0x2a3a55, 0x3a2a55, 0x2a553d, 0x55322a, 0x2a4f55, 0x4a2a5a,
+          0x6a3a5a, 0x5a2a4a, 0x3a4a6a, 0x7a4a5a, 0x8a5a6a, 0x6a4a8a,
+          0x9a4a6a, 0xa55a6a, 0x8a3a5a, 0x7a2a4a, 0x6a2a5a, 0x5a2a6a,
+          0x4a2a7a, 0x3a2a8a, 0x9a6a7a, 0xb57a8a, 0xc58a9a, 0xd59aaa,
+          0xa55a7a, 0xb56a8a, 0xc57a9a, 0xd58aaa, 0xe59aba, 0xa54a6a,
+          0xb55a7a, 0xc56a8a, 0xd57a9a, 0xe58aaa, 0xa55a8a, 0xb56a9a,
+          0xc57aaa, 0xd58aba, 0xe59aca, 0xa55a9a, 0xb56aaa, 0xc57aba,
+          0xd58aca, 0xe59ada, 0xa55aaa, 0xb56aba, 0xc57aca, 0xd58ada,
+          0xe59aea
+        ];
+        
+        // ألوان بناطيل (50 لون)
+        const pantsColors = [
+          0x1e1e2f, 0x1d2633, 0x252038, 0x1b1b24, 0x2a2a3a, 0x353545,
+          0x2d2d3a, 0x3a3a4a, 0x454555, 0x4a4a5a, 0x2a3a4a, 0x3a4a5a,
+          0x4a5a6a, 0x5a6a7a, 0x2a3a3a, 0x3a4a4a, 0x4a5a5a, 0x1a2a2a,
+          0x332a2a, 0x443a3a, 0x554a4a, 0x221e1e, 0x332e2e, 0x443e3e,
+          0x554e4e, 0x665e5e, 0x2a2a1a, 0x3a3a2a, 0x4a4a3a, 0x5a5a4a,
+          0x6a6a5a, 0x7a7a6a, 0x2a1a1a, 0x3a2a2a, 0x4a3a3a, 0x5a4a4a,
+          0x6a5a5a, 0x7a6a6a, 0x1a2a1a, 0x2a3a2a, 0x3a4a3a, 0x4a5a4a,
+          0x5a6a5a, 0x6a7a6a, 0x2a2a2a, 0x3a3a3a, 0x4a4a4a, 0x5a5a5a,
+          0x6a6a6a, 0x7a7a7a
+        ];
+        
+        // ألوان أحذية (30 لون)
+        const shoeColors = [
+          0x2c1e1e, 0x1e2a2a, 0x2a1e2a, 0x332211, 0x443322, 0x554433,
+          0x1a1a1a, 0x2a2a2a, 0x3a3a3a, 0x4a4a4a, 0x5a5a5a, 0x6a6a6a,
+          0x3a2a1a, 0x4a3a2a, 0x5a4a3a, 0x6a5a4a, 0x2a1a0a, 0x3a2a1a,
+          0x4a3a2a, 0x5a4a3a, 0x1a2a3a, 0x2a3a4a, 0x3a4a5a, 0x4a5a6a,
+          0x2a1a2a, 0x3a2a3a, 0x4a3a4a, 0x5a4a5a, 0x1a1a2a, 0x2a2a3a
+        ];
+        
+        // ألوان إكسسوارات (20 لون)
+        const accessoryColors = [
+          0xffaa00, 0x00aaff, 0xff44aa, 0x44ffaa, 0xaa44ff, 0xff8844,
+          0x44aaff, 0xffaa44, 0xaa44aa, 0x44aa44, 0xaa4444, 0x44aaaa,
+          0xcccccc, 0x999999, 0x666666, 0x333333, 0xff0000, 0x00ff00,
+          0x0000ff, 0xffff00
+        ];
+        
+        return {
+          skin: pick(skinTones),
+          hair: pick(hairColors),
+          top: gender === "male" ? pick(maleShirts) : pick(femaleTops),
+          pants: pick(pantsColors),
+          shoes: pick(shoeColors),
+          accessory: pick(accessoryColors)
+        };
+      }
+
+      // ---------- إنشاء العيون مع تنوع فائق ----------
+      function createEyes(group, baseY, palette) {
+        const eyeSpacing = rand(1.1, 1.5);
+        const eyeY = baseY + rand(0.3, 0.6);
+        const eyeZ = rand(1.5, 1.8);
+        
+        // ألوان العيون المتنوعة
+        const irisColors = [
+          0x3a6ea5, 0x4a2f1b, 0x2f4a3a, 0x2b2f4a, 0x6a3a2b, 0x5a3a1a,
+          0x1a3a5a, 0x3a5a1a, 0x5a1a3a, 0x1a5a3a, 0x3a1a5a, 0x5a3a1a,
+          0x6a4a2a, 0x2a4a6a, 0x4a6a2a, 0x6a2a4a, 0x2a6a4a, 0x4a2a6a,
+          0x7a5a3a, 0x3a5a7a, 0x5a7a3a, 0x7a3a5a, 0x3a7a5a, 0x5a3a7a
+        ];
+        
+        const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const pupilMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        
+        // اختيار شكل العين (حجم مختلف)
+        const eyeSize = rand(0.35, 0.5);
+        
+        const addEye = (x, y, z) => {
+          // بياض العين
+          const white = new THREE.Mesh(new THREE.SphereGeometry(eyeSize, 24), eyeWhiteMat);
+          white.position.set(x, y, z);
+          white.castShadow = true;
+          group.add(white);
+          
+          // القزحية
+          const iris = new THREE.Mesh(
+            new THREE.SphereGeometry(eyeSize * 0.6, 20), 
+            new THREE.MeshStandardMaterial({ color: pick(irisColors) })
+          );
+          iris.position.set(x, y, z + eyeSize * 0.3);
+          group.add(iris);
+          
+          // البؤبؤ
+          const pupil = new THREE.Mesh(
+            new THREE.SphereGeometry(eyeSize * 0.3, 16), 
+            pupilMat
+          );
+          pupil.position.set(x, y, z + eyeSize * 0.45);
+          group.add(pupil);
+          
+          // بريق
+          const gleam = new THREE.Mesh(
+            new THREE.SphereGeometry(eyeSize * 0.15, 8), 
+            new THREE.MeshStandardMaterial({ color: 0xffffff })
+          );
+          gleam.position.set(x + eyeSize * 0.15, y + eyeSize * 0.15, z + eyeSize * 0.55);
+          group.add(gleam);
+        };
+        
+        addEye(-eyeSpacing/2, eyeY, eyeZ);
+        addEye(eyeSpacing/2, eyeY, eyeZ);
+        
+        return { eyeY, eyeZ };
+      }
+
+      // ---------- إنشاء الطاقية (قبعة) ----------
+      function createHat(group, palette) {
+        const hatType = randInt(1, 8);
+        const hatMat = new THREE.MeshStandardMaterial({ color: palette.accessory });
+        
+        if (hatType === 1) {
+          // قبعة بيسبول
+          const brimGeo = new THREE.CylinderGeometry(2.0, 2.2, 0.2, 8);
+          const brim = new THREE.Mesh(brimGeo, hatMat);
+          brim.position.set(0, 4.9, 0.2);
+          brim.rotation.x = 0.2;
+          group.add(brim);
+          
+          const crownGeo = new THREE.CylinderGeometry(1.5, 1.6, 0.8, 8);
+          const crown = new THREE.Mesh(crownGeo, hatMat);
+          crown.position.set(0, 5.3, 0.1);
+          group.add(crown);
+        } else if (hatType === 2) {
+          // قبعة صغيرة
+          const hatGeo = new THREE.ConeGeometry(1.6, 1.2, 8);
+          const hat = new THREE.Mesh(hatGeo, hatMat);
+          hat.position.set(0, 5.0, 0.2);
+          group.add(hat);
+        } else if (hatType === 3) {
+          // قبعة مسطحة
+          const hatGeo = new THREE.CylinderGeometry(1.8, 1.6, 0.6, 8);
+          const hat = new THREE.Mesh(hatGeo, hatMat);
+          hat.position.set(0, 5.0, 0.2);
+          group.add(hat);
+        } else if (hatType === 4) {
+          // قبعة رعاة البقر
+          const brimGeo = new THREE.CylinderGeometry(2.5, 2.5, 0.2, 8);
+          const brim = new THREE.Mesh(brimGeo, hatMat);
+          brim.position.set(0, 4.8, 0.2);
+          group.add(brim);
+          
+          const crownGeo = new THREE.ConeGeometry(1.2, 1.5, 8);
+          const crown = new THREE.Mesh(crownGeo, hatMat);
+          crown.position.set(0, 5.5, 0.1);
+          group.add(crown);
+        } else if (hatType === 5) {
+          // قبعة صوفية (beanie)
+          const beanieGeo = new THREE.ConeGeometry(1.5, 1.2, 8);
+          const beanie = new THREE.Mesh(beanieGeo, hatMat);
+          beanie.position.set(0, 5.0, 0.2);
+          beanie.scale.set(1.0, 0.8, 1.0);
+          group.add(beanie);
+          
+          const pompomGeo = new THREE.SphereGeometry(0.3, 6);
+          const pompom = new THREE.Mesh(pompomGeo, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+          pompom.position.set(0, 5.7, 0.1);
+          group.add(pompom);
+        } else if (hatType === 6) {
+          // قبعة فيدورا
+          const brimGeo = new THREE.CylinderGeometry(2.0, 2.0, 0.2, 8);
+          const brim = new THREE.Mesh(brimGeo, hatMat);
+          brim.position.set(0, 4.9, 0.2);
+          group.add(brim);
+          
+          const crownGeo = new THREE.CylinderGeometry(1.3, 1.4, 1.2, 8);
+          const crown = new THREE.Mesh(crownGeo, hatMat);
+          crown.position.set(0, 5.4, 0.1);
+          group.add(crown);
+          
+          const bandGeo = new THREE.TorusGeometry(1.35, 0.1, 6, 16);
+          const band = new THREE.Mesh(bandGeo, new THREE.MeshStandardMaterial({ color: 0x333333 }));
+          band.position.set(0, 5.0, 0.2);
+          band.rotation.x = Math.PI/2;
+          band.scale.set(1.0, 0.3, 1.0);
+          group.add(band);
+        } else if (hatType === 7) {
+          // تاج
+          const crownBaseGeo = new THREE.CylinderGeometry(1.8, 1.9, 0.2, 8);
+          const base = new THREE.Mesh(crownBaseGeo, new THREE.MeshStandardMaterial({ color: 0xffaa00 }));
+          base.position.set(0, 5.0, 0.2);
+          group.add(base);
+          
+          for (let i = 0; i < 5; i++) {
+            const spikeGeo = new THREE.ConeGeometry(0.3, 0.8, 6);
+            const spike = new THREE.Mesh(spikeGeo, new THREE.MeshStandardMaterial({ color: 0xffaa00 }));
+            spike.position.set(Math.sin(i * 1.26) * 0.8, 5.4, Math.cos(i * 1.26) * 0.8 + 0.2);
+            group.add(spike);
+          }
+        } else if (hatType === 8) {
+          // قبعة عسكرية
+          const brimGeo = new THREE.CylinderGeometry(2.0, 2.1, 0.2, 8);
+          const brim = new THREE.Mesh(brimGeo, hatMat);
+          brim.position.set(0, 4.9, 0.2);
+          group.add(brim);
+          
+          const crownGeo = new THREE.CylinderGeometry(1.5, 1.5, 1.0, 8);
+          const crown = new THREE.Mesh(crownGeo, hatMat);
+          crown.position.set(0, 5.3, 0.1);
+          group.add(crown);
+        }
+      }
+
+      // ---------- إنشاء النظارات ----------
+      function createGlasses(group, eyeY, eyeZ, palette) {
+        const glassMat = new THREE.MeshStandardMaterial({ color: palette.accessory });
+        const lensMat = new THREE.MeshStandardMaterial({ color: 0x888888, transparent: true, opacity: 0.3 });
+        
+        const glassType = randInt(1, 6);
+        const eyeSpacing = rand(1.2, 1.5);
+        
+        if (glassType === 1) {
+          // نظارة طبية
+          const frameGeo = new THREE.TorusGeometry(0.5, 0.08, 8, 16, Math.PI);
+          
+          const leftFrame = new THREE.Mesh(frameGeo, glassMat);
+          leftFrame.position.set(-eyeSpacing/2, eyeY, eyeZ + 0.2);
+          leftFrame.rotation.y = 0;
+          leftFrame.rotation.z = 0;
+          leftFrame.scale.set(0.8, 0.5, 0.2);
+          group.add(leftFrame);
+          
+          const rightFrame = leftFrame.clone();
+          rightFrame.position.set(eyeSpacing/2, eyeY, eyeZ + 0.2);
+          group.add(rightFrame);
+          
+          // العدسات
+          const lensGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.05, 8);
+          const leftLens = new THREE.Mesh(lensGeo, lensMat);
+          leftLens.position.set(-eyeSpacing/2, eyeY, eyeZ + 0.25);
+          leftLens.rotation.x = Math.PI/2;
+          group.add(leftLens);
+          
+          const rightLens = leftLens.clone();
+          rightLens.position.set(eyeSpacing/2, eyeY, eyeZ + 0.25);
+          group.add(rightLens);
+          
+          // جسر
+          const bridgeGeo = new THREE.BoxGeometry(0.5, 0.1, 0.1);
+          const bridge = new THREE.Mesh(bridgeGeo, glassMat);
+          bridge.position.set(0, eyeY, eyeZ + 0.25);
+          group.add(bridge);
+        } else if (glassType === 2) {
+          // نظارة شمسية
+          const frameGeo = new THREE.BoxGeometry(1.2, 0.5, 0.2);
+          const frame = new THREE.Mesh(frameGeo, glassMat);
+          frame.position.set(0, eyeY, eyeZ + 0.25);
+          group.add(frame);
+          
+          const lensGeo = new THREE.BoxGeometry(1.0, 0.3, 0.1);
+          const lens = new THREE.Mesh(lensGeo, new THREE.MeshStandardMaterial({ color: 0x222222, transparent: true, opacity: 0.5 }));
+          lens.position.set(0, eyeY, eyeZ + 0.3);
+          group.add(lens);
+        } else if (glassType === 3) {
+          // نظارة رياضية
+          const frameGeo = new THREE.TorusGeometry(0.6, 0.1, 8, 16, Math.PI);
+          
+          const leftFrame = new THREE.Mesh(frameGeo, glassMat);
+          leftFrame.position.set(-eyeSpacing/2, eyeY, eyeZ + 0.15);
+          leftFrame.rotation.y = 0;
+          leftFrame.rotation.z = 0;
+          leftFrame.scale.set(1.0, 0.7, 0.2);
+          group.add(leftFrame);
+          
+          const rightFrame = leftFrame.clone();
+          rightFrame.position.set(eyeSpacing/2, eyeY, eyeZ + 0.15);
+          group.add(rightFrame);
+          
+          // حزام
+          const strapGeo = new THREE.BoxGeometry(2.5, 0.1, 0.1);
+          const strap = new THREE.Mesh(strapGeo, glassMat);
+          strap.position.set(0, eyeY - 0.2, eyeZ - 0.2);
+          group.add(strap);
+        } else if (glassType === 4) {
+          // نظارة كبيرة
+          const frameGeo = new THREE.TorusGeometry(0.7, 0.1, 8, 16, Math.PI);
+          
+          const leftFrame = new THREE.Mesh(frameGeo, glassMat);
+          leftFrame.position.set(-eyeSpacing/2, eyeY, eyeZ + 0.2);
+          leftFrame.scale.set(1.0, 0.6, 0.2);
+          group.add(leftFrame);
+          
+          const rightFrame = leftFrame.clone();
+          rightFrame.position.set(eyeSpacing/2, eyeY, eyeZ + 0.2);
+          group.add(rightFrame);
+        } else if (glassType === 5) {
+          // نظارة قلبية
+          const heartGeo = new THREE.SphereGeometry(0.4, 8);
+          const heartMat2 = new THREE.MeshStandardMaterial({ color: 0xff3366 });
+          
+          const leftHeart = new THREE.Mesh(heartGeo, heartMat2);
+          leftHeart.position.set(-eyeSpacing/2, eyeY, eyeZ + 0.25);
+          leftHeart.scale.set(1.0, 0.8, 0.3);
+          group.add(leftHeart);
+          
+          const rightHeart = leftHeart.clone();
+          rightHeart.position.set(eyeSpacing/2, eyeY, eyeZ + 0.25);
+          group.add(rightHeart);
+        } else if (glassType === 6) {
+          // نظارة عيون قط
+          const frameGeo = new THREE.ConeGeometry(0.6, 0.8, 8);
+          
+          const leftFrame = new THREE.Mesh(frameGeo, glassMat);
+          leftFrame.position.set(-eyeSpacing/2, eyeY + 0.2, eyeZ + 0.2);
+          leftFrame.rotation.x = 0.2;
+          leftFrame.rotation.z = -0.2;
+          leftFrame.scale.set(0.5, 0.5, 0.2);
+          group.add(leftFrame);
+          
+          const rightFrame = leftFrame.clone();
+          rightFrame.position.set(eyeSpacing/2, eyeY + 0.2, eyeZ + 0.2);
+          rightFrame.rotation.z = 0.2;
+          group.add(rightFrame);
+        }
+      }
+
+      // ---------- إنشاء الشنطة (حقيبة) ----------
+      function createBag(group, palette) {
+        if (!chance(0.4)) return; // 40% فرصة ظهور شنطة
+        
+        const bagMat = new THREE.MeshStandardMaterial({ color: palette.accessory });
+        const bagType = randInt(1, 4);
+        
+        if (bagType === 1) {
+          // حقيبة ظهر
+          const bagGeo = new THREE.BoxGeometry(1.2, 1.5, 0.8);
+          const bag = new THREE.Mesh(bagGeo, bagMat);
+          bag.position.set(-0.8, 0.5, -0.8);
+          bag.castShadow = true;
+          group.add(bag);
+          
+          // حزام
+          const strapGeo = new THREE.BoxGeometry(0.2, 1.2, 0.1);
+          const strap = new THREE.Mesh(strapGeo, bagMat);
+          strap.position.set(-1.3, 0.5, -0.4);
+          strap.rotation.z = 0.2;
+          group.add(strap);
+        } else if (bagType === 2) {
+          // حقيبة يد
+          const bagGeo = new THREE.BoxGeometry(0.8, 0.6, 0.4);
+          const bag = new THREE.Mesh(bagGeo, bagMat);
+          bag.position.set(1.2, 0.8, 0.5);
+          bag.castShadow = true;
+          group.add(bag);
+          
+          // مقبض
+          const handleGeo = new THREE.TorusGeometry(0.3, 0.05, 6, 12, Math.PI);
+          const handle = new THREE.Mesh(handleGeo, bagMat);
+          handle.position.set(1.2, 1.1, 0.6);
+          handle.rotation.x = Math.PI/2;
+          handle.rotation.z = 0;
+          handle.scale.set(0.8, 0.5, 0.2);
+          group.add(handle);
+        } else if (bagType === 3) {
+          // حقيبة رياضية
+          const bagGeo = new THREE.CylinderGeometry(0.8, 0.8, 1.2, 8);
+          const bag = new THREE.Mesh(bagGeo, bagMat);
+          bag.position.set(1.0, -1.2, -0.5);
+          bag.rotation.z = 0.3;
+          bag.castShadow = true;
+          group.add(bag);
+        } else if (bagType === 4) {
+          // حقيبة كتف
+          const bagGeo = new THREE.BoxGeometry(1.0, 0.8, 0.3);
+          const bag = new THREE.Mesh(bagGeo, bagMat);
+          bag.position.set(-1.2, 0.6, 0.7);
+          bag.castShadow = true;
+          group.add(bag);
+          
+          const strapGeo = new THREE.TorusGeometry(0.6, 0.05, 6, 12, Math.PI/2);
+          const strap = new THREE.Mesh(strapGeo, bagMat);
+          strap.position.set(-0.8, 0.6, 0.7);
+          strap.rotation.y = 0.5;
+          strap.rotation.x = 0.3;
+          strap.scale.set(1.5, 1.0, 0.3);
+          group.add(strap);
+        }
+      }
+
+      // ---------- إنشاء الحذاء ----------
+      function createShoes(group, palette) {
+        const shoeMat = new THREE.MeshStandardMaterial({ color: palette.shoes });
+        
+        // حذاء أيسر
+        const leftShoeGeo = new THREE.BoxGeometry(0.8, 0.4, 1.2);
+        const leftShoe = new THREE.Mesh(leftShoeGeo, shoeMat);
+        leftShoe.position.set(-0.7, -2.3, 0.3);
+        leftShoe.castShadow = true;
+        group.add(leftShoe);
+        
+        // حذاء أيمن
+        const rightShoe = leftShoe.clone();
+        rightShoe.position.set(0.7, -2.3, 0.3);
+        group.add(rightShoe);
+        
+        // إضافة تفاصيل للأحذية
+        if (chance(0.5)) {
+          const detailMat = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+          const leftDetail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.2), detailMat);
+          leftDetail.position.set(-0.7, -2.1, 0.7);
+          group.add(leftDetail);
+          
+          const rightDetail = leftDetail.clone();
+          rightDetail.position.set(0.7, -2.1, 0.7);
+          group.add(rightDetail);
+        }
+      }
+
+      // ---------- إنشاء الجسم مع تنوع فائق وإكسسوارات ----------
+      function createBodyWithVariety(palette, gender) {
+        const group = new THREE.Group();
+        
+        // مواد شفافة في البداية
+        const skinMat = new THREE.MeshStandardMaterial({
+          color: palette.skin,
+          transparent: true,
+          opacity: 0.15,
+          roughness: 0.4,
+          side: THREE.DoubleSide
+        });
+
+        const skinMatDarker = new THREE.MeshStandardMaterial({
+          color: palette.skin * 0.9,
+          transparent: true,
+          opacity: 0.15,
+          side: THREE.DoubleSide
+        });
+
+        const topMat = new THREE.MeshStandardMaterial({
+          color: palette.top,
+          transparent: true,
+          opacity: 0.15,
+          side: THREE.DoubleSide
+        });
+
+        const pantsMat = new THREE.MeshStandardMaterial({
+          color: palette.pants,
+          transparent: true,
+          opacity: 0.15,
+          side: THREE.DoubleSide
+        });
+
+        // --- متغيرات عشوائية للشكل ---
+        const headScaleY = rand(0.95, 1.25);
+        const headWidth = rand(0.9, 1.1);
+        const headY = rand(3.2, 3.6);
+        const neckWidth = rand(0.8, 1.0);
+        const torsoWidth = gender === "female" ? rand(1.0, 1.3) : rand(1.2, 1.5);
+        const torsoHeight = rand(2.8, 3.4);
+        const armLength = rand(1.8, 2.2);
+        const armWidth = rand(0.35, 0.5);
+        const legLength = rand(2.0, 2.6);
+        const legWidth = rand(0.4, 0.6);
+        
+        // --- الرأس مع تنوع في الشكل ---
+        const headGeo = new THREE.SphereGeometry(1.65, 48, 48);
+        const head = new THREE.Mesh(headGeo, skinMat);
+        head.position.y = headY;
+        head.scale.set(headWidth, headScaleY, headWidth);
+        head.castShadow = true;
+        head.userData = { baseY: headY, material: skinMat, partType: 'head' };
+        group.add(head);
+        bodyParts.push(head);
+
+        // الفك
+        const jawGeo = new THREE.SphereGeometry(1.5, 24, 24, 0, Math.PI*2, 0, Math.PI/2);
+        const jaw = new THREE.Mesh(jawGeo, skinMatDarker);
+        jaw.position.set(0, headY - 0.6, 0.3);
+        jaw.scale.set(gender === "female" ? 1.05 : 1.15, 0.7, 0.95);
+        jaw.castShadow = true;
+        jaw.userData = { baseY: headY - 0.6, material: skinMatDarker, partType: 'jaw' };
+        group.add(jaw);
+        bodyParts.push(jaw);
+
+        // أنف
+        const noseGeo = new THREE.ConeGeometry(rand(0.25, 0.35), rand(0.6, 0.8), 10);
+        const nose = new THREE.Mesh(noseGeo, skinMatDarker);
+        nose.position.set(0, headY - 0.2, 2.0);
+        nose.rotation.x = 0.2;
+        nose.userData = { baseY: headY - 0.2, material: skinMatDarker, partType: 'nose' };
+        group.add(nose);
+        bodyParts.push(nose);
+
+        // فم
+        const mouth = new THREE.Mesh(
+          new THREE.TorusGeometry(rand(0.25, 0.35), 0.07, 8, 16, Math.PI),
+          new THREE.MeshStandardMaterial({ color: gender === "female" ? pick([0xb03a66, 0xc04a76, 0xd05a86]) : pick([0x992244, 0xaa3355, 0xbb4466]) })
+        );
+        mouth.position.set(0, headY - 0.7, 2.0);
+        mouth.rotation.x = 0.1;
+        mouth.scale.set(1, rand(0.35, 0.45), 1);
+        group.add(mouth);
+
+        // شعر مع تنوع كبير
+        const hairMat = new THREE.MeshStandardMaterial({ color: palette.hair });
+        if (gender === "male") {
+          const hairStyle = randInt(1, 6);
+          if (hairStyle === 1) {
+            const hairCap = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16, 0, Math.PI*2, 0, Math.PI/2), hairMat);
+            hairCap.position.set(0, headY + 1.5, 0.2);
+            hairCap.scale.set(rand(1.05, 1.15), rand(0.4, 0.5), rand(0.95, 1.05));
+            group.add(hairCap);
+          } else if (hairStyle === 2) {
+            const hairFull = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16), hairMat);
+            hairFull.position.set(0, headY + 1.4, 0.1);
+            hairFull.scale.set(rand(1.05, 1.15), rand(0.6, 0.7), rand(0.95, 1.05));
+            group.add(hairFull);
+          } else if (hairStyle === 3) {
+            // شعر طويل
+            const hairLong = new THREE.Mesh(new THREE.ConeGeometry(1.6, 2.0, 8), hairMat);
+            hairLong.position.set(0, headY + 1.5, 0.1);
+            group.add(hairLong);
+          } else {
+            const hairCap = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16, 0, Math.PI*2, 0, Math.PI/2), hairMat);
+            hairCap.position.set(0, headY + 1.5, 0.2);
+            hairCap.scale.set(rand(1.05, 1.15), rand(0.38, 0.52), rand(0.95, 1.05));
+            group.add(hairCap);
+          }
+        } else {
+          const hairStyle = randInt(1, 6);
+          if (hairStyle === 1) {
+            const hairLong = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16), hairMat);
+            hairLong.position.set(0, headY + 1.55, 0.1);
+            hairLong.scale.set(rand(1.1, 1.2), rand(0.7, 0.8), rand(1.0, 1.1));
+            group.add(hairLong);
+          } else if (hairStyle === 2) {
+            const hairCap = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16, 0, Math.PI*2, 0, Math.PI/2), hairMat);
+            hairCap.position.set(0, headY + 1.5, 0.2);
+            hairCap.scale.set(rand(1.05, 1.15), rand(0.45, 0.55), rand(0.95, 1.05));
+            group.add(hairCap);
+          } else if (hairStyle === 3) {
+            // ذيل حصان
+            const hairBase = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16), hairMat);
+            hairBase.position.set(0, headY + 1.5, 0.1);
+            group.add(hairBase);
+            
+            const ponytail = new THREE.Mesh(new THREE.ConeGeometry(1.0, 1.5, 8), hairMat);
+            ponytail.position.set(0, headY + 2.0, -0.5);
+            ponytail.rotation.x = 0.5;
+            group.add(ponytail);
+          } else {
+            const hairLong = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 16), hairMat);
+            hairLong.position.set(0, headY + 1.55, 0.1);
+            hairLong.scale.set(rand(1.1, 1.2), rand(0.55, 0.65), rand(1.0, 1.1));
+            group.add(hairLong);
+          }
+        }
+
+        // --- الجذع ---
+        const torsoGeo = new THREE.CylinderGeometry(
+          gender === "female" ? torsoWidth * 0.9 : torsoWidth, 
+          gender === "female" ? torsoWidth : torsoWidth * 1.1, 
+          torsoHeight, 
+          12
+        );
+        const torso = new THREE.Mesh(torsoGeo, topMat);
+        torso.position.y = 1.4;
+        torso.castShadow = true;
+        torso.userData = { baseY: 1.4, material: topMat, partType: 'torso' };
+        group.add(torso);
+        bodyParts.push(torso);
+
+        // --- البنطال ---
+        const pantsGeo = new THREE.CylinderGeometry(legWidth * 1.8, legWidth * 1.6, legLength, 8);
+        const pants = new THREE.Mesh(pantsGeo, pantsMat);
+        pants.position.y = -0.3;
+        pants.castShadow = true;
+        pants.userData = { baseY: -0.3, material: pantsMat, partType: 'pants' };
+        group.add(pants);
+        bodyParts.push(pants);
+
+        // --- الذراعان (نزلناها كثيراً: 1.2) ---
+        const armGeo = new THREE.CylinderGeometry(armWidth, armWidth * 0.9, armLength, 8);
+        
+        const leftArm = new THREE.Mesh(armGeo, topMat);
+        leftArm.position.set(-torsoWidth * 0.9, 1.2, 0.3); // نزلنا من 1.4 إلى 1.2
+        leftArm.rotation.z = rand(0.1, 0.2);
+        leftArm.rotation.x = rand(0.0, 0.2);
+        leftArm.castShadow = true;
+        leftArm.userData = { baseY: 1.2, material: topMat, partType: 'arm' };
+        group.add(leftArm);
+        bodyParts.push(leftArm);
+
+        const rightArm = new THREE.Mesh(armGeo, topMat);
+        rightArm.position.set(torsoWidth * 0.9, 1.2, 0.3); // نزلنا من 1.4 إلى 1.2
+        rightArm.rotation.z = -rand(0.1, 0.2);
+        rightArm.rotation.x = rand(0.0, 0.2);
+        rightArm.castShadow = true;
+        rightArm.userData = { baseY: 1.2, material: topMat, partType: 'arm' };
+        group.add(rightArm);
+        bodyParts.push(rightArm);
+
+        // --- الرجلان ---
+        const legGeo = new THREE.CylinderGeometry(legWidth, legWidth * 0.9, legLength, 8);
+        
+        const leftLeg = new THREE.Mesh(legGeo, pantsMat);
+        leftLeg.position.set(-legWidth * 1.2, -1.0, 0.1);
+        leftLeg.castShadow = true;
+        leftLeg.userData = { baseY: -1.0, material: pantsMat, partType: 'leg' };
+        group.add(leftLeg);
+        bodyParts.push(leftLeg);
+
+        const rightLeg = new THREE.Mesh(legGeo, pantsMat);
+        rightLeg.position.set(legWidth * 1.2, -1.0, 0.1);
+        rightLeg.castShadow = true;
+        rightLeg.userData = { baseY: -1.0, material: pantsMat, partType: 'leg' };
+        group.add(rightLeg);
+        bodyParts.push(rightLeg);
+
+        // --- إضافة العيون ---
+        const { eyeY, eyeZ } = createEyes(group, headY, palette);
+
+        // --- إضافة الإكسسوارات (بفرص متفاوتة) ---
+        if (chance(0.3)) createHat(group, palette); // 30% فرصة قبعة
+        if (chance(0.25)) createGlasses(group, eyeY, eyeZ, palette); // 25% فرصة نظارات
+        if (chance(0.2)) createBag(group, palette); // 20% فرصة شنطة
+        
+        // --- إضافة الحذاء (دائماً) ---
+        createShoes(group, palette);
+
+        return group;
+      }
+
+      // ---------- دالة تحديث التعتيم التدريجي الدقيق ----------
+      function updatePreciseGradient(percent) {
+        const minY = -2.2;
+        const maxY = 4.8;
+        
+        bodyParts.forEach(part => {
+          if (part.userData && part.userData.material) {
+            const baseY = part.userData.baseY;
+            const normalizedY = (baseY - minY) / (maxY - minY);
+            
+            let targetOpacity;
+            
+            if (percent === 0) {
+              targetOpacity = 0.15;
+            } else {
+              if (normalizedY <= percent) {
+                const distanceToPercent = percent - normalizedY;
+                const factor = distanceToPercent / percent;
+                targetOpacity = 0.85 + factor * 0.1;
+              } else {
+                const distanceFromPercent = normalizedY - percent;
+                const maxDistance = 1.0 - percent;
+                const factor = distanceFromPercent / maxDistance;
+                targetOpacity = 0.3 - factor * 0.15;
+              }
+            }
+            
+            targetOpacity = clamp(targetOpacity, 0.15, 0.95);
+            
+            if (part.userData.material.opacity !== targetOpacity) {
+              part.userData.material.opacity += (targetOpacity - part.userData.material.opacity) * 0.1;
+            }
+          }
+        });
+
+        document.getElementById('value').innerText = Math.round(percent * 100) + '%';
+        scene.background.setHSL(0.65, 0.7, 0.12 - percent * 0.05);
+      }
+
+      // ---------- مؤثرات إضافية (قلب) ----------
+      function createHeart(group) {
+        const heartMat = new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0x441122 });
+        const heartGeo = new THREE.SphereGeometry(0.5, 16);
+        heartMesh = new THREE.Mesh(heartGeo, heartMat);
+        heartMesh.position.set(0, 1.8, 1.3);
+        heartMesh.scale.set(0.6, 0.6, 0.3);
+        group.add(heartMesh);
+      }
+
+      // ---------- إنشاء أفتر جديد ----------
+      function generateAvatar(gender) {
+        currentGender = gender;
+        setBtnActive(gender);
+
+        while(avatarRoot.children.length) {
+          avatarRoot.remove(avatarRoot.children[0]);
+        }
+        bodyParts = [];
+
+        const palette = randomPalette(gender);
+        const body = createBodyWithVariety(palette, gender);
+        avatarRoot.add(body);
+        createHeart(avatarRoot);
+
+        const currentVal = parseInt(slider.value) / 100;
+        updatePreciseGradient(currentVal);
+      }
+
+      // ---------- شريط التحكم ----------
+      const slider = document.getElementById("slider");
+      const valueDiv = document.getElementById("value");
+      
+      let targetPercent = 0.0;
+      let currentPercent = 0.0;
+
+      slider.addEventListener("input", (e) => {
+        targetPercent = parseInt(e.target.value, 10) / 100;
+      });
+
+      function smoothUpdate() {
+        const diff = targetPercent - currentPercent;
+        if (Math.abs(diff) > 0.001) {
+          currentPercent += diff * 0.05;
+          updatePreciseGradient(currentPercent);
+        } else {
+          currentPercent = targetPercent;
+          updatePreciseGradient(currentPercent);
+        }
+      }
+
+      // ---------- الأزرار ----------
+      const maleBtn = document.getElementById("maleBtn");
+      const femaleBtn = document.getElementById("femaleBtn");
+      const regenBtn = document.getElementById("regenBtn");
+
+      maleBtn.addEventListener("click", () => generateAvatar("male"));
+      femaleBtn.addEventListener("click", () => generateAvatar("female"));
+      regenBtn.addEventListener("click", () => generateAvatar(currentGender));
+
+      generateAvatar("male");
+
+      // ---------- حركة الجسيمات ----------
+      function animateParticles() {
+        const positions = particles.geometry.attributes.position.array;
+        for (let i = 1; i < positions.length; i += 3) {
+          positions[i] += 0.001;
+          if (positions[i] > 8) positions[i] = -8;
+        }
+        particles.geometry.attributes.position.needsUpdate = true;
+      }
+
+      // ---------- حلقة التحريك ----------
+      let time = 0;
+      function animate() {
+        requestAnimationFrame(animate);
+
+        time += 0.01;
+        avatarRoot.position.y = Math.sin(time) * 0.08;
+        
+        if (heartMesh) {
+          heartMesh.scale.setScalar(0.6 + Math.sin(time * 3) * 0.02);
+        }
+
+        smoothUpdate();
+        animateParticles();
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    })();
+  </script>
+</body>
+</html>

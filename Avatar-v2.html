@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snap Style Avatar Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    background: radial-gradient(circle at center, #e5e7eb 0%, #9ca3af 80%);
+    font-family:Arial;
+}
+#ui{
+    position:absolute;
+    top:20px;
+    left:20px;
+}
+input{ width:200px; }
+button{
+    margin-top:10px;
+    padding:6px 12px;
+    cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+    <h2>Energy Level</h2>
+    <input type="range" min="0" max="100" value="40" id="slider">
+    <div id="value">Energy: 40%</div>
+    <button id="generate">Generate New Avatar</button>
+</div>
+
+<script>
+
+// ===== Scene =====
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.z = 13;
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+// ===== Lighting =====
+scene.add(new THREE.AmbientLight(0xffffff,0.8));
+const light = new THREE.DirectionalLight(0xffffff,1);
+light.position.set(5,8,6);
+scene.add(light);
+
+// ===== Avatar Group =====
+const avatar = new THREE.Group();
+scene.add(avatar);
+
+// ===== Materials =====
+const skinMat = new THREE.MeshPhysicalMaterial({
+    color:0xffd9b3,
+    roughness:0.6,
+    clearcoat:0.3
+});
+const shirtMat = new THREE.MeshStandardMaterial({color:0x111111});
+const shortsMat = new THREE.MeshStandardMaterial({color:0xe11d48});
+const hairMat = new THREE.MeshStandardMaterial({color:0x1c1c1c});
+
+// ===== Body =====
+const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(1,1.1,4,32),
+    shirtMat
+);
+body.position.y = -0.5;
+avatar.add(body);
+
+// ===== Shorts =====
+const shorts = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.95,1.05,1.8,32),
+    shortsMat
+);
+shorts.position.y = -3;
+avatar.add(shorts);
+
+// ===== Head =====
+const head = new THREE.Mesh(
+    new THREE.SphereGeometry(1.8,64,64),
+    skinMat
+);
+head.scale.set(1,1.15,1);
+head.position.y = 3.2;
+avatar.add(head);
+
+// ===== Hair =====
+const hair = new THREE.Mesh(
+    new THREE.SphereGeometry(1.75,64,64,0,Math.PI*2,0,Math.PI/2),
+    hairMat
+);
+hair.position.y = 4.3;
+avatar.add(hair);
+
+// ===== Beard =====
+const beard = new THREE.Mesh(
+    new THREE.SphereGeometry(1.65,64,64,0,Math.PI*2,Math.PI/2,Math.PI/2),
+    hairMat
+);
+beard.position.y = 2.9;
+avatar.add(beard);
+
+// ===== Eyes =====
+function createEye(x){
+    const white = new THREE.Mesh(
+        new THREE.SphereGeometry(0.35,32,32),
+        new THREE.MeshStandardMaterial({color:0xffffff})
+    );
+    white.position.set(x,3.4,1.6);
+    avatar.add(white);
+
+    const pupil = new THREE.Mesh(
+        new THREE.SphereGeometry(0.17,32,32),
+        new THREE.MeshStandardMaterial({color:0x111111})
+    );
+    pupil.position.set(x,3.4,1.9);
+    avatar.add(pupil);
+
+    const shine = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06,16,16),
+        new THREE.MeshStandardMaterial({color:0xffffff})
+    );
+    shine.position.set(x+0.05,3.48,2);
+    avatar.add(shine);
+}
+createEye(-0.6);
+createEye(0.6);
+
+// ===== Eyebrows =====
+function createBrow(x){
+    const brow = new THREE.Mesh(
+        new THREE.BoxGeometry(0.7,0.08,0.08),
+        hairMat
+    );
+    brow.position.set(x,4.1,1.6);
+    brow.rotation.z = x<0 ? -0.2 : 0.2;
+    avatar.add(brow);
+}
+createBrow(-0.6);
+createBrow(0.6);
+
+// ===== Mouth =====
+const mouth = new THREE.Mesh(
+    new THREE.TorusGeometry(0.45,0.07,16,100,Math.PI),
+    new THREE.MeshStandardMaterial({color:0x7a1f1f})
+);
+mouth.position.set(0,2.6,1.7);
+mouth.rotation.x = Math.PI;
+avatar.add(mouth);
+
+// ===== Arms =====
+const armGeo = new THREE.CylinderGeometry(0.3,0.3,3,16);
+
+const leftArm = new THREE.Mesh(armGeo, skinMat);
+leftArm.position.set(-1.6,-0.2,0);
+leftArm.rotation.z = Math.PI/7;
+avatar.add(leftArm);
+
+const rightArm = new THREE.Mesh(armGeo, skinMat);
+rightArm.position.set(1.6,-0.2,0);
+rightArm.rotation.z = -Math.PI/7;
+avatar.add(rightArm);
+
+// ===== Legs =====
+const legGeo = new THREE.CylinderGeometry(0.35,0.35,3,16);
+
+const leftLeg = new THREE.Mesh(legGeo, skinMat);
+leftLeg.position.set(-0.6,-5,0);
+avatar.add(leftLeg);
+
+const rightLeg = new THREE.Mesh(legGeo, skinMat);
+rightLeg.position.set(0.6,-5,0);
+avatar.add(rightLeg);
+
+// ===== Energy =====
+const energyMat = new THREE.MeshStandardMaterial({
+    color:0x00ffff,
+    emissive:0x00ffff,
+    emissiveIntensity:1.2,
+    transparent:true,
+    opacity:0.4
+});
+const energy = new THREE.Mesh(
+    new THREE.CylinderGeometry(1,1,4,32),
+    energyMat
+);
+energy.position.y = -1.5;
+energy.scale.y = 0.4;
+avatar.add(energy);
+
+// ===== Slider =====
+const slider=document.getElementById("slider");
+const value=document.getElementById("value");
+
+slider.addEventListener("input",()=>{
+    let v=slider.value;
+    value.innerText="Energy: "+v+"%";
+    let scale=v/100;
+    energy.scale.y=scale;
+    energy.position.y=-1.5 + (4*scale)/2;
+    energyMat.emissiveIntensity = scale*2;
+});
+
+// ===== Random Generator =====
+const generateBtn = document.getElementById("generate");
+
+const skinColors=[0xffd9b3,0xf1c27d,0xe0ac69,0xc68642,0x8d5524];
+const clothesColors=[0x111111,0x2563eb,0x16a34a,0xdc2626,0x7c3aed,0xf59e0b];
+const hairColors=[0x111111,0x3f3f46,0x78350f,0x1e293b];
+
+generateBtn.addEventListener("click",()=>{
+
+    skinMat.color.setHex(skinColors[Math.floor(Math.random()*skinColors.length)]);
+    shirtMat.color.setHex(clothesColors[Math.floor(Math.random()*clothesColors.length)]);
+    shortsMat.color.setHex(clothesColors[Math.floor(Math.random()*clothesColors.length)]);
+    hairMat.color.setHex(hairColors[Math.floor(Math.random()*hairColors.length)]);
+
+    const headScale = 0.9 + Math.random()*0.4;
+    head.scale.set(1,headScale,1);
+
+    mouth.scale.set(0.7 + Math.random()*0.8,1,1);
+
+    beard.visible = Math.random() > 0.5;
+    hair.visible = Math.random() > 0.2;
+
+});
+
+// ===== Rotate =====
+let dragging=false;
+let prevX=0;
+
+renderer.domElement.addEventListener("mousedown",e=>{
+    dragging=true;
+    prevX=e.clientX;
+});
+renderer.domElement.addEventListener("mouseup",()=>dragging=false);
+
+renderer.domElement.addEventListener("mousemove",e=>{
+    if(!dragging) return;
+    avatar.rotation.y += (e.clientX-prevX)*0.01;
+    prevX=e.clientX;
+});
+
+// ===== Animate =====
+function animate(){
+    requestAnimationFrame(animate);
+    renderer.render(scene,camera);
+}
+animate();
+
+window.addEventListener("resize",()=>{
+    camera.aspect=window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+</script>
+</body>
+</html>
